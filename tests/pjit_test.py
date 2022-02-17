@@ -189,6 +189,28 @@ class PJitTest(jtu.BufferDonationTestCase):
     self.assertAllClose(actual.device_buffers[3].to_py(), split1,
                         check_dtypes=False)
 
+  def testNestedMesh(self):
+    mesh = jtu.create_global_mesh((2, 1), ("x" ,"y"))
+    x = jnp.arange(2)
+    with mesh:
+      with mesh:
+        out = pjit(lambda x: x, in_axis_resources=None, out_axis_resources=None)(x)
+        self.assertArraysEqual(out, x)
+
+  def testMeshDecorator(self):
+    x = jnp.arange(8)
+    mesh_shape = (2, 2)
+    size = prod(mesh_shape)
+    if len(jax.devices()) < size:
+      raise unittest.SkipTest(f"Test requires {size} global devices.")
+    mesh_devices = np.array(jax.devices()[:size]).reshape(mesh_shape)
+
+    @pxla.Mesh(mesh_devices, ('x', 'y'))
+    def dec():
+      return pjit(lambda x: x, in_axis_resources=P('x'), out_axis_resources=None)(x)
+    out = dec()
+    self.assertArraysEqual(out, x)
+
   @jtu.with_mesh([('x', 2), ('y', 2)])
   def testTwoMeshAxisSharding(self):
     @partial(pjit,
